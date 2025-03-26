@@ -1,0 +1,8 @@
+.venv
+.idea
+kolosy
+
+.vscode/
+**/__pycache__/
+Plan-projektu.docx
+fruits_generalization_test
