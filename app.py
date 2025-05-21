@@ -1,7 +1,7 @@
 # app.py  ── uproszczona inferencja ONNX + Streamlit
 import streamlit as st
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps, ImageEnhance
 import onnxruntime as ort
 from pathlib import Path
 
@@ -24,10 +24,24 @@ LABELS = [ln.strip() for ln in Path(LABELS_PATH).read_text(encoding="utf-8").spl
 
 # -------------------------------------------------- 3. preprocessing = to samo co w Torch transforms
 def preprocess(img: Image.Image) -> np.ndarray:
-    img = img.convert("RGB").resize(IMG_SIZE, Image.BILINEAR)
-    x   = np.asarray(img, dtype=np.float32) / 255.0      # H,W,C in [0,1]
-    x   = (x - 0.5) / 0.5                                # -> [-1,1]   (Normalize 0.5/0.5)
-    return x.transpose(2, 0, 1)[None, ...]               # 1,C,H,W
+    # --- 1. zawsze pełne RGB ---
+    img = img.convert("RGB")
+
+    # --- 2. usuń nadmiar tła  (centralny kwadrat 120×120) ---
+    img = ImageOps.fit(img, (140, 140), centering=(0.5, 0.5))
+
+    # --- 3. lekka korekta jasności i kontrastu  (+10 %) ---
+    img = ImageEnhance.Brightness(img).enhance(1.10)
+    img = ImageEnhance.Contrast(img).enhance(1.10)
+
+    # --- 4. skalowanie do 100×100 jak w treningu ---
+    img = img.resize((100, 100), Image.BILINEAR)
+
+    # --- 5. tensor 1×C×H×W + normalizacja [-1,1] ---
+    x = np.asarray(img, dtype=np.float32) / 255.0          # H,W,C
+    x = (x - 0.5) / 0.5                                    # mean=0.5, std=0.5
+    return x.transpose(2, 0, 1)[None, ...]                 # 1,C,H,W
+
 
 def softmax(v: np.ndarray) -> np.ndarray:
     e = np.exp(v - v.max())
@@ -40,8 +54,8 @@ def predict(tensor: np.ndarray):
     return idx, float(probs[idx])
 
 # -------------------------------------------------- 4. Streamlit UI
-st.set_page_config(page_title="Fruit-360 classifier", page_icon="🍎")
-st.title("🍎 Fruit-360 classifier")
+st.set_page_config(page_title="Klasyfikacja", page_icon="🍎")
+st.title("🍎 Klasyfikacja obrazów z modelem ONNX")
 
 uploaded = st.file_uploader("Wgraj obraz JPG / PNG", type=["jpg", "jpeg", "png"])
 if uploaded:

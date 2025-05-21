@@ -1,25 +1,19 @@
-# w osobnym pliku quick_debug.py
-import onnxruntime as ort, numpy as np
+# quick_debug.py  –  ONNX only
+import onnxruntime as ort
+import numpy as np
 from PIL import Image
-from your_torch_model import model as torch_model        # tylko jeśli masz jeszcze PyTorch
-torch_model.eval()
 
-def preprocess_pytorch(path):
-    import torchvision.transforms as T
-    tf = T.Compose([
-        T.Resize((100,100)),
-        T.ToTensor(),
-        T.Normalize([0.5,0.5,0.5],[0.5,0.5,0.5]),
-    ])
-    return tf(Image.open(path)).unsqueeze(0)
+IMG_PATH   = "apple100.jpg"
+IMG_SIZE   = (100, 100)          # tak jak w app.py
+MODEL_PATH = "simple_fruit_cnn_1.onnx"
 
-def preprocess_onnx(path):
-    img = Image.open(path).convert("RGB").resize((100,100))
-    x = np.asarray(img,dtype=np.float32)/255.0
-    x = (x-0.5)/0.5
+def preprocess(img_path):
+    img = Image.open(img_path).convert("RGB").resize(IMG_SIZE)
+    x   = np.asarray(img, dtype=np.float32) / 255.0
+    x   = (x - 0.5) / 0.5          # ta sama normalizacja co w app.py
     return x.transpose(2,0,1)[None,...]
 
-pth_pred = torch_model(preprocess_pytorch("apple.jpg")).argmax(1).item()
-sess = ort.InferenceSession("simple_fruit_cnn_1.onnx")
-onnx_pred = sess.run(None, {"input": preprocess_onnx("apple.jpg")})[0].argmax(1).item()
-print("PyTorch:", pth_pred, "ONNX:", onnx_pred)
+sess = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
+probs = sess.run(None, {"input": preprocess(IMG_PATH)})[0][0]
+print("Argmax   :", probs.argmax())
+print("Top-3 ids:", probs.argsort()[-3:][::-1])

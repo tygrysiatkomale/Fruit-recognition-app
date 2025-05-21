@@ -1,8 +1,9 @@
-matplotlib==3.10
-tensorflow==2.18
-seaborn==0.13.2
-numpy==2.0.2
-scikit-learn==1.6.1
-six==1.17.0
+# matplotlib==3.10
+# tensorflow==2.18
+# seaborn==0.13.2
+# numpy==2.0.2
+# scikit-learn==1.6.1
+# six==1.17.0
 torch
 torchvision
+streamlit
