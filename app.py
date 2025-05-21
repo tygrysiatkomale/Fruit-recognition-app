@@ -1,62 +1,54 @@
-# app.py – lekka wersja
+# app.py  ── uproszczona inferencja ONNX + Streamlit
 import streamlit as st
 import numpy as np
 from PIL import Image
 import onnxruntime as ort
 from pathlib import Path
 
-MODEL_PATH  = "simple_fruit_cnn_1.onnx"   # nazwa Twojego pliku ONNX
-LABELS_PATH = "labels.txt"                # już masz ten plik!
+MODEL_PATH  = "simple_fruit_cnn_1.onnx"   # ← jeśli użyjesz innej nazwy, zmień tutaj
+LABELS_PATH = "labels.txt"                # ← masz ten plik obok skryptu
+IMG_SIZE    = (100, 100)                  # Fruit-360 trenowany na 100×100
 
-# 1️⃣ model + parametry wejścia
+# -------------------------------------------------- 1. załaduj model
 @st.cache_resource(show_spinner=False)
-def load_model(model_path: str):
-    sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-    inp  = sess.get_inputs()[0]
-    out  = sess.get_outputs()[0]
-    _, _, h, w = inp.shape                  # h, w mogą być None (dynamiczne H×W)
-    target = (w, h) if w and h else None
-    return sess, inp.name, out.name, target
+def load_model(path: str):
+    sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+    inp_name  = sess.get_inputs()[0].name
+    out_name  = sess.get_outputs()[0].name
+    return sess, inp_name, out_name
 
-session, INPUT_NAME, OUTPUT_NAME, TARGET_SIZE = load_model(MODEL_PATH)
+session, INPUT_NAME, OUTPUT_NAME = load_model(MODEL_PATH)
 
-# 2️⃣ etykiety – tylko z pliku
+# -------------------------------------------------- 2. etykiety
 LABELS = [ln.strip() for ln in Path(LABELS_PATH).read_text(encoding="utf-8").splitlines()]
 
-# 3️⃣ preprocessing → tensor (1, C, H, W) 0-1
+# -------------------------------------------------- 3. preprocessing = to samo co w Torch transforms
 def preprocess(img: Image.Image) -> np.ndarray:
-    if TARGET_SIZE:
-        img = img.resize(TARGET_SIZE, Image.BILINEAR)
-    x = np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0      # H,W,C
-    return x.transpose(2, 0, 1)[None, ...]                            # 1,C,H,W
+    img = img.convert("RGB").resize(IMG_SIZE, Image.BILINEAR)
+    x   = np.asarray(img, dtype=np.float32) / 255.0      # H,W,C in [0,1]
+    x   = (x - 0.5) / 0.5                                # -> [-1,1]   (Normalize 0.5/0.5)
+    return x.transpose(2, 0, 1)[None, ...]               # 1,C,H,W
 
-# 4️⃣ softmax i predykcja
-def softmax(x: np.ndarray) -> np.ndarray:
-    e = np.exp(x - np.max(x))
+def softmax(v: np.ndarray) -> np.ndarray:
+    e = np.exp(v - v.max())
     return e / e.sum()
 
 def predict(tensor: np.ndarray):
-    logits = session.run([OUTPUT_NAME], {INPUT_NAME: tensor})[0][0]   # (n_classes,)
+    logits = session.run([OUTPUT_NAME], {INPUT_NAME: tensor})[0][0]
     probs  = softmax(logits)
-    idx    = int(np.argmax(probs))
-    conf   = float(probs[idx])
-    return idx, conf
+    idx    = int(probs.argmax())
+    return idx, float(probs[idx])
 
-# 5️⃣ interfejs Streamlit
-st.set_page_config(page_title="Fruit-360 classifier", page_icon="🍓", layout="centered")
-st.title("🍓 Fruit-360 classifier")
+# -------------------------------------------------- 4. Streamlit UI
+st.set_page_config(page_title="Fruit-360 classifier", page_icon="🍎")
+st.title("🍎 Fruit-360 classifier")
 
-if TARGET_SIZE:
-    st.caption(f"Model input size : **{TARGET_SIZE[1]} × {TARGET_SIZE[0]} px**")
-
-uploaded = st.file_uploader("Upload a JPG/PNG", type=["jpg", "jpeg", "png"])
-
+uploaded = st.file_uploader("Wgraj obraz JPG / PNG", type=["jpg", "jpeg", "png"])
 if uploaded:
     img = Image.open(uploaded)
-    st.image(img, caption="Uploaded image", use_container_width=True)
+    st.image(img, caption="Podgląd", use_container_width=True)
 
-    with st.spinner("Running inference…"):
+    with st.spinner("Analizuję…"):
         idx, conf = predict(preprocess(img))
-
     label = LABELS[idx] if idx < len(LABELS) else f"class {idx}"
-    st.success(f"**Prediction:** {label} ({conf:.2%})")
+    st.success(f"**Prediction:** {label}  ({conf:.2%})")
